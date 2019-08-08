@@ -2,7 +2,7 @@
 Add directives for writing exercises and solutions. This extension supports:
 
    .. exercise:: Name
-      
+
        Any content here...
 
        .. solution
@@ -12,7 +12,7 @@ Add directives for writing exercises and solutions. This extension supports:
 To summarize:
 
     - Exercises are automatically numbered "Exercise 1.1" (section number + exercise number)
-    - If a `.. all-exercises::`, the exercises are mentionned where, the `exercise` directive 
+    - If a `.. all-exercises::`, the exercises are mentionned where, the `exercise` directive
       is replaced with a reference to the exercise
     - Solutions can be hidden with `:hidden:`
 """
@@ -29,14 +29,15 @@ from sphinx.environment.adapters.toctree import TocTree
 from sphinx.environment.collectors import EnvironmentCollector
 from sphinx.util import url_re
 from sphinx.domains import Domain
+from docutils.parsers.rst.directives.admonitions import BaseAdmonition
 
 import uuid
 
 class exercise(nodes.Admonition, nodes.Element):
     pass
 
-class all_exercises(nodes.Element):
-    pass 
+class all_exercises(nodes.General, nodes.Element):
+    pass
 
 class solution(nodes.Admonition, nodes.Element):
     pass
@@ -48,9 +49,9 @@ class AllExercisesDirective(SphinxDirective):
     """ Directive replaced with all exercises found in all documents:
         Section number, subsection, exercises...
     """
-    def run(self): 
+    def run(self):
         return [all_exercises()] # Let it process later once the toctree is built
-    
+
 class ExerciseDirective(SphinxDirective):
     final_argument_whitespace = True
     has_content = True
@@ -59,44 +60,35 @@ class ExerciseDirective(SphinxDirective):
     def run(self):
         self.assert_has_content()
 
-        text = '\n'.join(self.content)
+        target_node = nodes.target('', '', ids=[
+            'exercise-%d' % self.env.new_serialno('sphinx.ext.exercises#exercises')
+        ])
 
-        admonition_node = exercise(text, **self.options)
-        admonition_node.signature = str(uuid.uuid5(uuid.NAMESPACE_OID, text))
+        node = exercise('\n'.join(self.content), **self.options)
+        node += nodes.title(_('Exercise'), _('Exercise'))
+        self.state.nested_parse(self.content, self.content_offset, node)
 
-        self.add_name(admonition_node)
+        if not hasattr(self.env, 'exercises_all_exercises'):
+            self.env.exercises_all_exercises = []
 
-        admonition_node.title = self.arguments[0] if len(self.arguments) > 0 else ''
-
-        self.state.nested_parse(self.content, self.content_offset,
-                                admonition_node)
-
-        if not hasattr(self.env, 'exercises'):
-            self.env.exercises = []
-        self.env.exercises.append({
+        self.env.exercises_all_exercises.append({
             'docname': self.env.docname,
             'lineno': self.lineno,
-            'node': admonition_node.deepcopy()
-        }) 
-        
-        # # Create a reference
-        # newnode = nodes.reference('', '')
-        # innernode = nodes.emphasis(_('here'), _('here'))
-        # newnode['refdocname'] = self.env.docname
-        # newnode['refuri'] = 'relative-url' #app.builder.get_relative_uri(self.env.docname, 'blabla')
-        # newnode['refuri'] += '#' + 'blibli'
-        # newnode.append(innernode)   
+            'todo': node.deepcopy(),
+            'target': target_node,
+        })
 
-        return [admonition_node]
-
+        return [target_node, node]
 
 def visit_exercise(self, node, name=''):
-    number = '.'.join(map(str, self.builder.env.toc_exercises[node.signature]))
-    
-    node.title = 'lala'
-    print(self.builder.env.toc_exercises)
+    #number = '.'.join(map(str, self.builder.env.toc_exercises[node.signature]))
+    #node.title = 'lala'
+    number = 'foo'
+    #self.add_fignumber(node)
+    #self
     self.body.append(self.starttag(node, 'div', CLASS=('exercise ' + name)))
-    self.body.append('<h3>Exercise %s: %s</h3>' % (number, node.title))
+
+    #self.body.append('<h3>Exercise %s: %s</h3>' % (number, node.title))
 
 
 def depart_exercise(self, node=None):
@@ -124,7 +116,7 @@ class ExercisesCollector(EnvironmentCollector):
     def process_doc(self, app: Sphinx, doctree: nodes.document) -> None:
         pass
 
-    def get_updated_docs(self, app: Sphinx, env: BuildEnvironment):
+    def get_Pupdated_docs(self, app: Sphinx, env: BuildEnvironment):
         return self.assign_exercise_numbers(env)
 
     def assign_exercise_numbers(self, env: BuildEnvironment):
@@ -156,6 +148,7 @@ class ExercisesCollector(EnvironmentCollector):
         def register_exercise_number(docname, section_number, exercise):
             env.toc_exercise_numbers.setdefault(docname, {})
             number = get_next_exercise_number(section_number)
+            #print(exercise['ids'][0])
             env.toc_exercise_numbers[docname][exercise.signature] = number
             env.toc_exercises[exercise.signature] = number
 
@@ -201,7 +194,7 @@ class ExerciseDomain(Domain):
     name = 'exercise'
     label = 'Exercise Sample'
     # roles = {
-        
+
     # }
     # directives = {
     #     'exercise': ExerciseDirective,
@@ -216,11 +209,11 @@ class ExerciseDomain(Domain):
 def process_exercise_nodes(app, doctree, fromdocname):
     env = app.builder.env
     print("after %s  ", fromdocname)
-    
-
-    for node in doctree.traverse(exercise):
+    #return
+    for node in doctree.traverse(all_exercises):
+    #for node in doctree.traverse(exercise):
         node.replace_self([])
-
+    return
     for node in doctree.traverse(all_exercises):
         # if not app.config.todo_include_todos:
         #     node.replace_self([])
@@ -250,9 +243,11 @@ def process_exercise_nodes(app, doctree, fromdocname):
             # Insert into the todolist
             content.append(info_exercise['node'])
 
-        node.replace_self(content)    
+        node.replace_self(content)
 
 
+def init_numfig_format(app, config):
+    config.numfig_format.update({'exercise': _('Exercise %s')})
 
 def setup(app):
     no_visits = (no_visit, no_visit)
@@ -260,21 +255,29 @@ def setup(app):
 
     app.add_config_value('hide_solutions', False, 'html')
 
-    app.add_node(exercise, html=visitors, latex=no_visits, text=visitors, man=no_visits)
-    app.add_node(solution, 
-        html=(visit_solution, depart_solution), 
-        latex=no_visits, 
+    app.add_enumerable_node(exercise, 'exercise',
+        html=visitors,
+        latex=no_visits,
+        text=visitors,
         man=no_visits
     )
+
+    app.add_node(solution,
+        html=(visit_solution, depart_solution),
+        latex=no_visits,
+        man=no_visits
+    )
+
 
     app.add_directive('exercise', ExerciseDirective)
     app.add_directive('solution', SolutionDirective)
     app.add_directive('all-exercises', AllExercisesDirective)
 
     app.connect('doctree-resolved', process_exercise_nodes)
+    app.connect('config-inited', init_numfig_format)
 
-    app.add_env_collector(ExercisesCollector)
-    app.add_domain(ExerciseDomain)
+    #app.add_env_collector(ExercisesCollector)
+    #app.add_domain(ExerciseDomain)
 
     return {
         'version': '0.1',
