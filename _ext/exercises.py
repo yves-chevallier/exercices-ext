@@ -65,7 +65,7 @@ class ExerciseDirective(SphinxDirective):
         ])
 
         node = exercise('\n'.join(self.content), **self.options)
-        node += nodes.title(_('Exercise'), _('Exercise'))
+        node += nodes.title(_('Title'), _('Title'))
         self.state.nested_parse(self.content, self.content_offset, node)
 
         if not hasattr(self.env, 'exercises_all_exercises'):
