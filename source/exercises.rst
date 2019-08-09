@@ -2,4 +2,5 @@
 Exercises
 =========
 
+
 .. all-exercises::
