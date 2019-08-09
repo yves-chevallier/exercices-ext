@@ -17,6 +17,7 @@ To summarize:
     - Solutions can be hidden with `:hidden:`
 """
 from docutils import nodes
+from docutils.parsers.rst.directives.admonitions import Hint
 
 from sphinx.util.console import colorize
 from sphinx.locale import _
@@ -26,6 +27,7 @@ from sphinx.util.docutils import SphinxDirective
 from sphinx.environment.adapters.toctree import TocTree
 from sphinx.environment.collectors import EnvironmentCollector
 from sphinx.util import url_re
+from collections import OrderedDict
 
 import logging
 
@@ -49,6 +51,7 @@ class AllExercisesDirective(SphinxDirective):
         Section number, subsection, exercises...
     """
     def run(self):
+        self.env.exercises_all_exercises_docname = self.env.docname
         return [all_exercises()] # Let it process later once the toctree is built
 
 
@@ -69,28 +72,28 @@ class ExerciseDirective(SphinxDirective):
         self.state.nested_parse(self.content, self.content_offset, node)
 
         if not hasattr(self.env, 'exercises_all_exercises'):
-            self.env.exercises_all_exercises = []
+            self.env.exercises_all_exercises = OrderedDict()
 
-        self.env.exercises_all_exercises.append({
-            'docname': self.env.docname,
+        self.env.exercises_all_exercises[(self.env.docname, id)] = {
             'lineno': self.lineno,
+            'docname': self.env.docname,
             'node': node,
             'target': target_node,
-        })
-
-        #logger.warning(colorize('yellow', 'ExerciseDirective %s' % id))
+        }
 
         return [target_node, node]
 
 
-class SolutionDirective(nodes.Admonition):
+class SolutionDirective(Hint):
     pass
+
 
 def visit_exercise(self, node, name=''):
     #logger.warning(colorize('blue', 'visit_exercises'))
     #print('visit ', repr(node), id(node))
     self.body.append(self.starttag(node, 'div', CLASS=('exercise ' + name)))
     if hasattr(node, 'exnum'): self.body.append('secnum: %s' % str(node.exnum))
+
 
 def depart_exercise(self, node=None):
     self.body.append('</div>\n')
@@ -107,28 +110,17 @@ def no_visit(self, node=None):
     pass
 
 def process_exercise_nodes(app, doctree, fromdocname):
-    env = app.builder.env
-
     for node in doctree.traverse(exercise):
-        docname = 'foo'
         para = nodes.paragraph()
-        filename = env.doc2path(docname, base=None)
 
-        number = '0'
-        print('Z.', id(node))
-        if hasattr(node, 'exnum'):
-            print('HASIT')
-
-        print('node-id', node['ids'])
-        #number = '.'.join(map(str, node.exnum))
-        description = app.config.numfig_format['exercise'] % number
-
+        meta = app.env.exercises_all_exercises[(fromdocname, node['ids'][1])]
+        description = meta['label']
 
         ref = nodes.reference('','')
         innernode = nodes.Text(description, description)
-        ref['refdocname'] = 'docname'
-        ref['refuri'] = app.builder.get_relative_uri(fromdocname, 'foo')
-        ref['refuri'] += '#foobar'
+        ref['refdocname'] = fromdocname
+        ref['refuri'] = app.builder.get_relative_uri(fromdocname, app.env.exercises_all_exercises_docname)
+        ref['refuri'] += '#' + node['ids'][1]
         ref.append(innernode)
         para += ref
 
@@ -136,8 +128,12 @@ def process_exercise_nodes(app, doctree, fromdocname):
 
     for node in doctree.traverse(all_exercises):
         content = []
-        for ex in app.env.all_exercises:
-            content.append(ex)
+        print(sorted(app.env.exercises_all_exercises.items(), key=lambda x: x[1]['number']))
+        for _, ex in sorted(app.env.exercises_all_exercises.items(), key=lambda x: x[1]['number']):
+            n = ex['node']
+            n.replace(n.children[n.first_child_matching_class(nodes.title)], nodes.title('', ex['label']))
+            n['ids'].append('exercise-' + ('-'.join(map(str, ex['number']))))
+            content.append(n)
 
         node.replace_self(content)
 
@@ -150,28 +146,29 @@ class ExercisesCollector(EnvironmentCollector):
         pass
 
     def get_updated_docs(self, app, env):
-        def traverse_all(env, docname):
+        if not hasattr(env, 'all_exercises'):
+            env.all_exercises = []
+
+        def traverse_all(app, env, docname):
             doctree = env.get_doctree(docname)
 
             for toc in doctree.traverse(addnodes.toctree):
                 for _, subdocname in toc['entries']:
-                    traverse_all(env, subdocname)
+                    traverse_all(app, env, subdocname)
 
             for node in doctree.traverse(exercise):
-                self.process_exercise(env, node, docname)
+                self.process_exercise(app, env, node, docname)
 
-        traverse_all(env, env.config.master_doc)
+        traverse_all(app, env, env.config.master_doc)
 
         return []
 
-    def process_exercise(self, env, node, docname):
-        node.exnum = env.toc_fignumbers.get(docname, {}).get('exercise', {}).get(node['ids'][0])
-        print('A.', id(node))
+    def process_exercise(self, app, env, node, docname):
+        meta = env.exercises_all_exercises[(docname, node['ids'][1])]
+        meta['number'] = env.toc_fignumbers.get(docname, {}).get('exercise', {}).get(node['ids'][0])
+        meta['label'] = app.config.numfig_format['exercise'] % '.'.join(map(str, meta['number']))
 
-        if not hasattr(env, 'all_exercises'):
-            env.all_exercises = []
-
-        env.all_exercises.append(node)
+        env.all_exercises.append(meta)
 
 def init_numfig_format(app, config):
     config.numfig_format.update({'exercise': _('Exercise %s')})
